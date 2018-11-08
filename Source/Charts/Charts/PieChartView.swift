@@ -125,7 +125,7 @@ open class PieChartView: PieRadarChartViewBase
         drawMarkers(context: context)
     }
     
-    internal override func calculateOffsets()
+    open override func calculateOffsets()
     {
         super.calculateOffsets()
         
@@ -182,7 +182,7 @@ open class PieChartView: PieRadarChartViewBase
     }
     
     /// calculates the needed angles for the chart slices
-    private func calcAngles()
+    open func calcAngles()
     {
         _drawAngles = [CGFloat]()
         _absoluteAngles = [CGFloat]()
@@ -253,7 +253,7 @@ open class PieChartView: PieRadarChartViewBase
     }
     
     /// calculates the needed angle for a given value
-    private func calcAngle(value: Double, yValueSum: Double) -> CGFloat
+    open func calcAngle(value: Double, yValueSum: Double) -> CGFloat
     {
         return CGFloat(value) / CGFloat(yValueSum) * _maxAngle
     }
