@@ -38,6 +38,12 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
     /// uses a multi-dataset bar chart.
     ///
     /// The ````internal```` specifier is to allow subclasses (HorizontalBar) to populate the same array
+    private struct Constants {
+        static let valueOffsetPlus: CGFloat = 4.5
+        static let autoshrinkStep: CGFloat = 0.5
+        static let minimumFontSize: CGFloat = 5.0
+    }
+    
     internal lazy var accessibilityOrderedElements: [[NSUIAccessibilityElement]] = accessibilityCreateEmptyOrderedElements()
 
     private class Buffer
@@ -475,6 +481,34 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
         
         trans.rectValueToPixel(&rect, phaseY: animator.phaseY )
     }
+    
+    private func autoShrinkFor(_ text: String, in rect: CGRect, textColor: UIColor, valueFont: inout UIFont) {
+        var attributes: [NSAttributedString.Key: Any] = [NSAttributedString.Key.foregroundColor: textColor, NSAttributedString.Key.font: valueFont]
+        var attributedString = NSAttributedString(string: text, attributes: attributes)
+        var size = attributedString.size()
+        while size.width > rect.width {
+            valueFont = valueFont.withSize(valueFont.pointSize - Constants.autoshrinkStep)
+            attributes[NSAttributedString.Key.font] = valueFont
+            attributedString = NSAttributedString(string: text, attributes: attributes)
+            size = attributedString.size()
+            if valueFont.pointSize < Constants.minimumFontSize {
+                break
+            }
+        }
+    }
+    
+    private func calculateOffset(for font: UIFont, isInverted: Bool, drawValueAboveBar: Bool) -> (posOffset: CGFloat, negOffset: CGFloat) {
+        let valueTextHeight = font.lineHeight
+        var posOffset = (drawValueAboveBar ? -(valueTextHeight + Constants.valueOffsetPlus) : Constants.valueOffsetPlus)
+        var negOffset = (drawValueAboveBar ? Constants.valueOffsetPlus : -(valueTextHeight + Constants.valueOffsetPlus))
+        
+        if isInverted
+        {
+            posOffset = -posOffset - valueTextHeight
+            negOffset = -negOffset - valueTextHeight
+        }
+        return (posOffset, negOffset)
+    }
 
     open override func drawValues(context: CGContext)
     {
@@ -488,9 +522,6 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
 
             var dataSets = barData.dataSets
 
-            let valueOffsetPlus: CGFloat = 4.5
-            var posOffset: CGFloat
-            var negOffset: CGFloat
             let drawValueAboveBar = dataProvider.isDrawValueAboveBarEnabled
 
             for dataSetIndex in 0 ..< barData.dataSetCount
@@ -503,18 +534,6 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
                 }
                 
                 let isInverted = dataProvider.isInverted(axis: dataSet.axisDependency)
-                
-                // calculate the correct offset depending on the draw position of the value
-                let valueFont = dataSet.valueFont
-                let valueTextHeight = valueFont.lineHeight
-                posOffset = (drawValueAboveBar ? -(valueTextHeight + valueOffsetPlus) : valueOffsetPlus)
-                negOffset = (drawValueAboveBar ? valueOffsetPlus : -(valueTextHeight + valueOffsetPlus))
-                
-                if isInverted
-                {
-                    posOffset = -posOffset - valueTextHeight
-                    negOffset = -negOffset - valueTextHeight
-                }
                 
                 let buffer = _buffers[dataSetIndex]
                 
@@ -550,19 +569,24 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
                         
                         let val = e.y
                         
+                        let text = formatter.stringForValue(
+                            val,
+                            entry: e,
+                            dataSetIndex: dataSetIndex,
+                            viewPortHandler: viewPortHandler)
+                        var valueFont = dataSet.valueFont
+                        autoShrinkFor(text, in: rect, textColor: dataSet.valueTextColor, valueFont: &valueFont)
+                        let offset = calculateOffset(for: valueFont, isInverted: isInverted, drawValueAboveBar: drawValueAboveBar)
+                        
                         if dataSet.isDrawValuesEnabled
                         {
                             drawValue(
                                 context: context,
-                                value: formatter.stringForValue(
-                                    val,
-                                    entry: e,
-                                    dataSetIndex: dataSetIndex,
-                                    viewPortHandler: viewPortHandler),
+                                value: text,
                                 xPos: x,
                                 yPos: val >= 0.0
-                                    ? (rect.origin.y + posOffset)
-                                    : (rect.origin.y + rect.size.height + negOffset),
+                                    ? (rect.origin.y + offset.posOffset)
+                                    : (rect.origin.y + rect.size.height + offset.negOffset),
                                 font: valueFont,
                                 align: .center,
                                 color: dataSet.valueTextColorAt(j))
@@ -572,8 +596,8 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
                         {
                             var px = x
                             var py = val >= 0.0
-                                ? (rect.origin.y + posOffset)
-                                : (rect.origin.y + rect.size.height + negOffset)
+                                ? (rect.origin.y + offset.posOffset)
+                                : (rect.origin.y + rect.size.height + offset.negOffset)
                             
                             px += iconsOffset.x
                             py += iconsOffset.y
@@ -617,18 +641,23 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
                                 continue
                             }
                             
+                            let text = formatter.stringForValue(
+                                e.y,
+                                entry: e,
+                                dataSetIndex: dataSetIndex,
+                                viewPortHandler: viewPortHandler)
+                            var valueFont = dataSet.valueFont
+                            autoShrinkFor(text, in: rect, textColor: dataSet.valueTextColor, valueFont: &valueFont)
+                            let offset = calculateOffset(for: valueFont, isInverted: isInverted, drawValueAboveBar: drawValueAboveBar)
+                            
                             if dataSet.isDrawValuesEnabled
                             {
                                 drawValue(
                                     context: context,
-                                    value: formatter.stringForValue(
-                                        e.y,
-                                        entry: e,
-                                        dataSetIndex: dataSetIndex,
-                                        viewPortHandler: viewPortHandler),
+                                    value: text,
                                     xPos: x,
                                     yPos: rect.origin.y +
-                                        (e.y >= 0 ? posOffset : negOffset),
+                                        (e.y >= 0 ? offset.posOffset : offset.negOffset),
                                     font: valueFont,
                                     align: .center,
                                     color: dataSet.valueTextColorAt(index))
@@ -638,7 +667,7 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
                             {
                                 var px = x
                                 var py = rect.origin.y +
-                                    (e.y >= 0 ? posOffset : negOffset)
+                                    (e.y >= 0 ? offset.posOffset : offset.negOffset)
                                 
                                 px += iconsOffset.x
                                 py += iconsOffset.y
@@ -691,7 +720,15 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
                             {
                                 let val = vals[k]
                                 let drawBelow = (val == 0.0 && negY == 0.0 && posY > 0.0) || val < 0.0
-                                let y = transformed[k].y + (drawBelow ? negOffset : posOffset)
+                                let text = formatter.stringForValue(
+                                    val,
+                                    entry: e,
+                                    dataSetIndex: dataSetIndex,
+                                    viewPortHandler: viewPortHandler)
+                                var valueFont = dataSet.valueFont
+                                autoShrinkFor(text, in: rect, textColor: dataSet.valueTextColor, valueFont: &valueFont)
+                                let offset = calculateOffset(for: valueFont, isInverted: isInverted, drawValueAboveBar: drawValueAboveBar)
+                                let y = transformed[k].y + (drawBelow ? offset.negOffset : offset.posOffset)
                                 
                                 if !viewPortHandler.isInBoundsRight(x)
                                 {
@@ -707,11 +744,7 @@ open class BarChartRenderer: BarLineScatterCandleBubbleRenderer
                                 {
                                     drawValue(
                                         context: context,
-                                        value: formatter.stringForValue(
-                                            vals[k],
-                                            entry: e,
-                                            dataSetIndex: dataSetIndex,
-                                            viewPortHandler: viewPortHandler),
+                                        value: text,
                                         xPos: x,
                                         yPos: y,
                                         font: valueFont,
